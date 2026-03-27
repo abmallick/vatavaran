@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vatavaran"
+version = "1.0.0"
+description = "Vatavaran: An SRE Incident Response Environment for training and evaluating AI agents on real-world production incident triage"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "openenv-core[core]>=0.2.1",
+    "requests>=2.25.0",
+    "openai>=1.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.0.0",
+    "httpx>=0.28.0",
+]
+
+[project.scripts]
+server = "vatavaran.server.app:main"
+
+[tool.setuptools]
+include-package-data = true
+packages = ["vatavaran", "vatavaran.server", "vatavaran.baseline"]
+package-dir = { "vatavaran" = ".", "vatavaran.server" = "server", "vatavaran.baseline" = "baseline" }
