@@ -8,3 +8,5 @@ build/
 *.egg
 outputs/
 .python-version
+.DS_Store
+uv.lock
