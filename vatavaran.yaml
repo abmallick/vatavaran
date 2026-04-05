@@ -1,6 +1,6 @@
 spec_version: 1
-name: vatavaran-incident-response
+name: vatavaran
 type: space
 runtime: fastapi
-app: server.app:app
+app: vatavaran.server.app:app
 port: 8000

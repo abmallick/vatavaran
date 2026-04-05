@@ -1,209 +1,212 @@
----
-title: Vatavaran — Incident Response Environment
-emoji: 🔥
-colorFrom: red
-colorTo: orange
-sdk: docker
-pinned: false
-app_port: 8000
-base_path: /web
-tags:
-  - openenv
----
+# Vatavaran Environment (OpenEnv)
 
-# Vatavaran: Incident Response Agent Environment
+Vatavaran is an OpenEnv-compatible benchmark environment for cloud root cause analysis (RCA).  
+It converts an OpenRCA-style workflow into an interactive environment where an external agent performs telemetry investigation via `reset()`, `step()`, and `state()`.
 
-**Vatavaran** (Hindi: वातावरण, "environment") is an OpenEnv-compatible environment that simulates production incident response in a microservice architecture. AI agents act as on-call SRE engineers, diagnosing root causes and applying remediations across a realistic infrastructure of 8 interconnected services.
+The environment simulates realistic DevOps RCA work on metrics, traces, and logs using a persistent IPython sandbox.
 
-## Why Incident Response?
+## Motivation
 
-Incident response is one of the most expensive and high-stakes tasks in modern software operations:
+Most toy environments do not reflect real RCA workflows. This environment targets:
 
-- **$100B+ annual cost** across the tech industry in engineering time spent on incidents
-- **Every tech company** from startups to FAANG runs 24/7 on-call rotations
-- **High cognitive load**: engineers must reason across distributed systems under time pressure
-- **Directly trainable**: clear success criteria, rich partial-progress signals, natural difficulty progression
+- multi-step diagnosis over heterogeneous telemetry,
+- strict, deterministic grading of RCA outputs,
+- partial progress rewards for agent training,
+- reproducible evaluation across easy/middle/hard tasks.
 
-No existing OpenEnv environment covers this domain. Vatavaran fills that gap, providing a rigorous benchmark for evaluating how well AI agents can perform real-world operational reasoning.
+## OpenEnv Compliance
 
-## Tasks
+This project includes:
 
-| Task ID | Name | Difficulty | Description |
-|---------|------|-----------|-------------|
-| `service_outage` | Service Outage Recovery | Easy | The api-gateway is down (OOM killed). Diagnose from logs and restart. |
-| `db_pool_exhaustion` | DB Connection Pool Exhaustion | Medium | Multiple services slow due to a bad config push reducing DB pool from 100→10. Trace through metrics and fix config. |
-| `cascading_failure` | Cascading Failure Investigation | Hard | Memory leak in cache-service triggers auth failures cascading to api-gateway. Trace the dependency chain and rollback the bad deploy. |
+- typed Pydantic models (`VatavaranAction`, `VatavaranObservation`, `VatavaranState`),
+- `reset()`, `step()`, and `state`,
+- `openenv.yaml`,
+- root `server/app.py` compatibility entrypoint,
+- Dockerfile and lockfile (`uv.lock`),
+- additional hackathon endpoints: `/tasks`, `/grader`, `/baseline`.
 
-### Difficulty Progression
+Validation command:
 
-- **Easy**: Single service, single action fix. Tests basic log reading.
-- **Medium**: Multi-service impact, red herrings (unrelated deploys). Tests metric correlation and config management.
-- **Hard**: 4-service cascade with the root cause 3 hops away from the symptoms. Tests systematic dependency tracing under ambiguity.
-
-## Infrastructure
-
-The simulated architecture includes 8 services with realistic metrics, logs, configs, and deployment history:
-
-```
-┌──────────────┐
-│  api-gateway  │──→ auth-service ──→ cache-service
-│  (entry)      │──→ user-service ──→ database
-│               │──→ order-service ──→ payment-service
-└──────────────┘                   ──→ message-queue
+```bash
+.venv/bin/openenv validate
 ```
 
-Each service exposes: status, CPU/memory usage, latency percentiles, error rates, request rates, replica count, configuration, deployment history, and timestamped logs.
+## Project Layout
+
+```text
+vatavaran/
+├── openenv.yaml
+├── pyproject.toml
+├── uv.lock
+├── Dockerfile
+├── inference.py
+├── vatavaran/
+│   ├── __init__.py
+│   └── server/
+│       └── app.py
+├── server/
+│   └── app.py
+└── openrca_env/
+    ├── __init__.py
+    ├── client.py
+    ├── models.py
+    ├── config/
+    │   ├── env_config.yaml
+    │   └── reward_config.yaml
+    ├── data/
+    │   ├── tasks.json
+    │   ├── prepare_data.py
+    │   └── telemetry/Bank/{date}/...
+    └── server/
+        ├── app.py
+        ├── rca_environment.py
+        ├── code_sandbox.py
+        ├── evaluator.py
+        ├── reward_engine.py
+        └── domain_knowledge.py
+```
+
+`vatavaran` is the public package name. The `openrca_env` package is retained internally for backward compatibility.
 
 ## Action Space
 
-```python
-class IncidentAction(Action):
-    action_type: ActionType   # see below
-    target_service: str | None
-    parameters: dict | None
-```
+`VatavaranAction`:
 
-| Action | Description | Requires `target_service` |
-|--------|-------------|:------------------------:|
-| `check_logs` | View recent log entries for a service | Yes |
-| `check_metrics` | View CPU, memory, latency, error rate | Yes |
-| `check_service_status` | Get status of one or all services | Optional |
-| `check_dependencies` | View dependency graph, config, deploys | Optional |
-| `restart_service` | Restart a service | Yes |
-| `scale_service` | Change replica count | Yes |
-| `rollback_deploy` | Rollback the most recent deployment | Yes |
-| `update_config` | Update service configuration parameters | Yes |
-| `escalate` | Escalate to senior on-call | No |
-| `resolve` | Mark the incident as resolved | No |
+- `action_type`: `"execute_code" | "list_files" | "submit_answer"`
+- `content`: payload string (code, path, or answer JSON)
 
 ## Observation Space
 
-```python
-class IncidentObservation(Observation):
-    alert: AlertInfo | None      # Incident alert details (shown on reset)
-    message: str                 # Feedback about the last action
-    data: dict | None            # Structured response data
-    available_actions: list[str] # Available action types
-    services: list[str]          # All service names
-    step_count: int              # Current step
-    max_steps: int               # Step limit (25)
-    incident_resolved: bool      # Whether resolved
-    task_id: str                 # Current task
-```
+`VatavaranObservation` includes:
 
-## Reward Design
+- `result`: textual output from action execution,
+- `success`: action success flag,
+- `last_action_error`: error message or `null`,
+- `task_id`, `task_description`, `difficulty`,
+- `domain_knowledge`: schema + candidate lists,
+- `step_count`, `max_steps`,
+- OpenEnv reward/done fields.
 
-Rewards provide **continuous signal** throughout the episode (not just sparse end-of-episode):
+## Tasks and Difficulty
 
-| Component | Max | Description |
-|-----------|-----|-------------|
-| Diagnostic investigation | 0.35 | Investigating relevant services (bonus for root-cause service) |
-| Root-cause identification | 0.20 | Demonstrating understanding via targeted investigation |
-| Remediation | 0.35 | Applying the correct fix action with correct parameters |
-| Efficiency | 0.10 | Fewer steps = higher score (optimal vs actual) |
+The environment ships with 9 deterministic tasks (3 per level):
 
-**Per-step signals**: +0.03–0.08 for useful diagnostic actions, +0.12–0.20 for correct remediations, −0.01–0.02 for irrelevant actions. This enables gradient-based RL training, not just sparse binary rewards.
+- **Easy** (`task_3`): predict component only.
+- **Middle** (`task_6`): predict component + reason.
+- **Hard** (`task_7`): predict datetime + component + reason.
 
-## Baseline Scores
+Task source file: `openrca_env/data/tasks.json`.
 
-Deterministic rule-based baseline (no LLM):
+## Grader
 
-| Task | Score | Steps |
-|------|-------|-------|
-| service_outage (easy) | ~0.85 | 4 |
-| db_pool_exhaustion (medium) | ~0.90 | 7 |
-| cascading_failure (hard) | ~0.90 | 9 |
+The grader (`openrca_env/server/evaluator.py`) is OpenRCA-style:
 
-These scores are reproducible via the `/baseline` endpoint or `python baseline/inference.py --rule-based`.
+- component/reason: exact string match,
+- datetime: within 60 seconds,
+- permutation-aware matching for multi-root-cause formatting,
+- deterministic score in `[0.0, 1.0]`.
 
-## Setup & Usage
+You can call:
 
-### Install
+- `GET /grader` for last episode grade,
+- `POST /grader` with `{ "prediction": "...", "scoring_points": "..." }` for explicit grading.
 
-```bash
-pip install openenv-core[core]
-# or
-uv sync
-```
+## Reward Shaping (Config Driven)
 
-### Run Server Locally
+All reward logic is parameterized in `openrca_env/config/reward_config.yaml`:
 
-```bash
-uvicorn server.app:app --host 0.0.0.0 --port 8000 --reload
-```
+- code execution success reward / error penalty,
+- step efficiency penalty,
+- multi-modal exploration bonus (`metric`/`trace`/`log`),
+- cross-validation bonus,
+- final answer score weight,
+- per-difficulty max step limits.
 
-### Docker
+The runtime/sandbox policy is in `openrca_env/config/env_config.yaml`.
+
+## Setup
 
 ```bash
-docker build -t vatavaran:latest -f server/Dockerfile .
-docker run -p 8000:8000 vatavaran:latest
+python3 -m venv .venv
+.venv/bin/python -m pip install --upgrade pip
+.venv/bin/pip install -e .
+python3 openrca_env/data/prepare_data.py
 ```
 
-### Run Baseline
+## Run Locally
+
+Start server:
 
 ```bash
-# Rule-based (deterministic, no API key needed):
-python baseline/inference.py --base-url http://localhost:8000 --rule-based
-
-# LLM-based (requires OPENAI_API_KEY):
-export OPENAI_API_KEY=sk-...
-python baseline/inference.py --base-url http://localhost:8000
+.venv/bin/uvicorn vatavaran.server.app:app --host 127.0.0.1 --port 8000
 ```
 
-### Use as Client
+Basic checks:
 
-```python
-from vatavaran import IncidentAction, IncidentResponseEnv
-
-async with IncidentResponseEnv(base_url="http://localhost:8000") as env:
-    result = await env.reset()
-    print(result.observation.alert.title)
-
-    result = await env.step(IncidentAction(
-        action_type="check_logs",
-        target_service="api-gateway",
-    ))
-    print(result.observation.data)
+```bash
+curl -s -X POST -H "Content-Type: application/json" -d '{}' http://127.0.0.1:8000/reset
+curl -s http://127.0.0.1:8000/tasks
+curl -s http://127.0.0.1:8000/baseline
 ```
 
-## API Endpoints
+## Baseline Inference Script
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/reset` | POST | Reset environment (body: `{"task_id": "..."}`) |
-| `/step` | POST | Take an action |
-| `/state` | GET | Current episode state |
-| `/health` | GET | Health check |
-| `/tasks` | GET | List tasks and action schema |
-| `/grader` | POST | Grade a completed episode |
-| `/baseline` | POST | Run baseline and return scores |
-| `/schema` | GET | Action/Observation JSON schemas |
-| `/ws` | WS | WebSocket for persistent sessions |
-| `/web` | GET | Interactive web UI |
+The required script is root-level `inference.py`.
 
-## Project Structure
+Required env vars:
 
-```
-vatavaran/
-├── openenv.yaml              # OpenEnv manifest
-├── pyproject.toml             # Package metadata
-├── README.md                  # This file
-├── __init__.py                # Package exports
-├── models.py                  # Action/Observation Pydantic models
-├── client.py                  # EnvClient implementation
-├── server/
-│   ├── app.py                 # FastAPI application + extra endpoints
-│   ├── environment.py         # Core IncidentResponseEnvironment
-│   ├── simulation.py          # Infrastructure simulation engine
-│   ├── tasks.py               # Task definitions (easy/medium/hard)
-│   ├── graders.py             # Grading logic (0.0–1.0)
-│   ├── baseline_runner.py     # Deterministic baseline for /baseline
-│   ├── Dockerfile             # Container image
-│   └── requirements.txt       # Server dependencies
-└── baseline/
-    └── inference.py           # Standalone inference script (LLM + rule-based)
+- `API_BASE_URL` (default: `https://router.huggingface.co/v1`)
+- `MODEL_NAME` (default: `Qwen/Qwen2.5-72B-Instruct`)
+- `HF_TOKEN` or `API_KEY`
+- `IMAGE_NAME` or `LOCAL_IMAGE_NAME` when using `from_docker_image()`
+
+Local run against a running server:
+
+```bash
+RCA_USE_BASE_URL=true RCA_BASE_URL=http://127.0.0.1:8000 .venv/bin/python inference.py
 ```
 
-## License
+The script emits only:
 
-BSD-3-Clause
+- `[START] ...`
+- `[STEP] ...`
+- `[END] ...`
+
+## Reproducible Baseline Scores
+
+Example run (`RCA_EPISODE_COUNT=3`, tasks `easy_1`, `middle_1`, `hard_1`):
+
+- easy_1: score `1.00`
+- middle_1: score `1.00`
+- hard_1: score `0.67`
+
+These are deterministic with the shipped synthetic dataset and heuristic execution policy.
+
+## Docker
+
+Build:
+
+```bash
+docker build -t vatavaran .
+```
+
+Run:
+
+```bash
+docker run --rm -p 8000:8000 vatavaran
+```
+
+## Pre-Submission Validation
+
+Use your provided checker:
+
+```bash
+chmod +x pre-validation.sh
+./pre-validation.sh <your_hf_space_url> .
+```
+
+This checks:
+
+1. `POST /reset` returns `200`,
+2. Docker build passes,
+3. `openenv validate` passes.

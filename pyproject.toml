@@ -1,24 +1,30 @@
 [build-system]
-requires = ["setuptools>=45", "wheel"]
+requires = ["setuptools>=65", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "vatavaran"
-version = "1.0.0"
-description = "Vatavaran: An SRE Incident Response Environment for training and evaluating AI agents on real-world production incident triage"
+version = "0.1.0"
+description = "Vatavaran OpenEnv environment for cloud root cause analysis."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
-    "openenv-core[core]>=0.2.1",
-    "requests>=2.25.0",
-    "openai>=1.0.0",
+  "openenv-core[core]>=0.2.2",
+  "fastapi>=0.115.0",
+  "pydantic>=2.8.0",
+  "uvicorn>=0.30.0",
+  "requests>=2.32.0",
+  "pandas>=2.2.0",
+  "ipython>=8.18.0",
+  "PyYAML>=6.0.0",
+  "tiktoken>=0.7.0",
+  "openai>=1.54.0",
+  "pytz>=2022.7",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=8.0.0",
-    "pytest-cov>=4.0.0",
-    "httpx>=0.28.0",
+  "pytest>=8.0.0",
 ]
 
 [project.scripts]
@@ -26,5 +32,14 @@ server = "vatavaran.server.app:main"
 
 [tool.setuptools]
 include-package-data = true
-packages = ["vatavaran", "vatavaran.server", "vatavaran.baseline"]
-package-dir = { "vatavaran" = ".", "vatavaran.server" = "server", "vatavaran.baseline" = "baseline" }
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["openrca_env*", "vatavaran*", "server*"]
+
+[tool.setuptools.package-data]
+openrca_env = [
+  "config/*.yaml",
+  "data/*.json",
+  "data/telemetry/**/*.csv",
+]

@@ -1,0 +1,85 @@
+{
+  "tasks": [
+    {
+      "task_id": "easy_1",
+      "difficulty": "easy",
+      "task_index": "task_3",
+      "system": "Bank",
+      "date": "2021_03_05",
+      "instruction": "Between 2021-03-05 09:57:00 and 2021-03-05 10:27:00, one banking-service failure occurred. Identify the root cause component only.",
+      "scoring_points": "The only predicted root cause component is Tomcat01"
+    },
+    {
+      "task_id": "middle_1",
+      "difficulty": "middle",
+      "task_index": "task_6",
+      "system": "Bank",
+      "date": "2021_03_05",
+      "instruction": "During 2021-03-05 09:57:00 to 2021-03-05 10:27:00, one failure happened. Identify both the root cause component and reason.",
+      "scoring_points": "The only predicted root cause component is Tomcat01\nThe only predicted root cause reason is high CPU usage"
+    },
+    {
+      "task_id": "hard_1",
+      "difficulty": "hard",
+      "task_index": "task_7",
+      "system": "Bank",
+      "date": "2021_03_05",
+      "instruction": "Within 2021-03-05 09:57:00 to 2021-03-05 10:27:00, diagnose the failure and provide the exact root cause occurrence datetime, component, and reason.",
+      "scoring_points": "The only root cause occurrence time is within 1 minutes (i.e., <=1min) of 2021-03-05 10:12:00\nThe only predicted root cause component is Tomcat01\nThe only predicted root cause reason is high CPU usage"
+    },
+    {
+      "task_id": "easy_2",
+      "difficulty": "easy",
+      "task_index": "task_3",
+      "system": "Bank",
+      "date": "2021_03_06",
+      "instruction": "Between 2021-03-06 14:05:00 and 2021-03-06 14:35:00, one banking-service failure occurred. Identify the root cause component only.",
+      "scoring_points": "The only predicted root cause component is MG02"
+    },
+    {
+      "task_id": "middle_2",
+      "difficulty": "middle",
+      "task_index": "task_6",
+      "system": "Bank",
+      "date": "2021_03_06",
+      "instruction": "During 2021-03-06 14:05:00 to 2021-03-06 14:35:00, one failure happened. Identify both the root cause component and reason.",
+      "scoring_points": "The only predicted root cause component is MG02\nThe only predicted root cause reason is network latency"
+    },
+    {
+      "task_id": "hard_2",
+      "difficulty": "hard",
+      "task_index": "task_7",
+      "system": "Bank",
+      "date": "2021_03_06",
+      "instruction": "Within 2021-03-06 14:05:00 to 2021-03-06 14:35:00, diagnose the failure and provide the exact root cause occurrence datetime, component, and reason.",
+      "scoring_points": "The only root cause occurrence time is within 1 minutes (i.e., <=1min) of 2021-03-06 14:20:00\nThe only predicted root cause component is MG02\nThe only predicted root cause reason is network latency"
+    },
+    {
+      "task_id": "easy_3",
+      "difficulty": "easy",
+      "task_index": "task_3",
+      "system": "Bank",
+      "date": "2021_03_07",
+      "instruction": "Between 2021-03-07 15:50:00 and 2021-03-07 16:20:00, one banking-service failure occurred. Identify the root cause component only.",
+      "scoring_points": "The only predicted root cause component is Mysql01"
+    },
+    {
+      "task_id": "middle_3",
+      "difficulty": "middle",
+      "task_index": "task_6",
+      "system": "Bank",
+      "date": "2021_03_07",
+      "instruction": "During 2021-03-07 15:50:00 to 2021-03-07 16:20:00, one failure happened. Identify both the root cause component and reason.",
+      "scoring_points": "The only predicted root cause component is Mysql01\nThe only predicted root cause reason is high memory usage"
+    },
+    {
+      "task_id": "hard_3",
+      "difficulty": "hard",
+      "task_index": "task_7",
+      "system": "Bank",
+      "date": "2021_03_07",
+      "instruction": "Within 2021-03-07 15:50:00 to 2021-03-07 16:20:00, diagnose the failure and provide the exact root cause occurrence datetime, component, and reason.",
+      "scoring_points": "The only root cause occurrence time is within 1 minutes (i.e., <=1min) of 2021-03-07 16:05:00\nThe only predicted root cause component is Mysql01\nThe only predicted root cause reason is high memory usage"
+    }
+  ]
+}
