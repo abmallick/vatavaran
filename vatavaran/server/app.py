@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import Body, Query, Request
+from fastapi.responses import RedirectResponse
 from openenv.core.env_server import create_app
 
 from ..models import VatavaranAction, VatavaranObservation
@@ -27,6 +28,12 @@ app = create_app(
 
 # Utility singleton for auxiliary HTTP endpoints.
 _service_env = VatavaranEnvironment()
+
+
+@app.get("/")
+def root() -> RedirectResponse:
+    """Redirect root to interactive API docs."""
+    return RedirectResponse(url="/docs")
 
 
 @app.get("/tasks")
