@@ -3,16 +3,19 @@
 from __future__ import annotations
 
 import json
+import os
 import random
 import re
 import uuid
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
 import yaml
 from openenv.core.env_server.interfaces import Action, Environment, Observation
 
 from ..models import VatavaranAction, VatavaranObservation, VatavaranState
+from ..openrca_difficulty import difficulty_from_task_index
 from .code_sandbox import CodeSandbox
 from .domain_knowledge import get_domain_knowledge
 from .evaluator import evaluate_prediction
@@ -25,15 +28,18 @@ class VatavaranEnvironment(Environment):
     def __init__(self):
         package_root = Path(__file__).resolve().parents[1]
         self.package_root = package_root
+        self.repo_root = Path(__file__).resolve().parents[2]
         self.config_dir = package_root / "config"
-        self.data_root = package_root / "data" / "telemetry"
-        self.tasks_file = package_root / "data" / "tasks.json"
 
         self.reward_config = self._load_yaml(self.config_dir / "reward_config.yaml")
         self.env_config = self._load_yaml(self.config_dir / "env_config.yaml")
+        self._dataset_root: Path = self._resolve_dataset_root()
+        self.data_root = self._resolve_telemetry_root()
+
+        self.tasks_file = self._resolve_tasks_path()
         self.tasks = self._load_tasks(self.tasks_file)
         if not self.tasks:
-            raise ValueError("No tasks found in tasks.json.")
+            raise ValueError(f"No tasks found in {self.tasks_file}.")
 
         sandbox_cfg = self.env_config.get("sandbox", {})
         self._sandbox = CodeSandbox(self.data_root, sandbox_cfg)
@@ -51,24 +57,127 @@ class VatavaranEnvironment(Environment):
         with path.open("r", encoding="utf-8") as handle:
             return yaml.safe_load(handle) or {}
 
+    def _resolve_tasks_path(self) -> Path:
+        override = os.environ.get("VATAVARAN_TASKS_FILE")
+        if override:
+            p = Path(override).expanduser()
+            return p if p.is_absolute() else self.repo_root / p
+        cfg = self.env_config.get("tasks") or {}
+        raw = cfg.get("path")
+        if raw:
+            p = Path(raw)
+            p = p if p.is_absolute() else self.repo_root / p
+            if p.is_file():
+                return p
+        return self.repo_root / (cfg.get("path") or "data/Bank_filtered/queries.csv")
+
+    def _resolve_dataset_root(self) -> Path:
+        """Repo-relative dataset folder containing the task CSV, record.csv, and telemetry/."""
+
+        override = os.environ.get("VATAVARAN_DATASET_ROOT")
+        if override:
+            p = Path(override).expanduser()
+            p = p if p.is_absolute() else self.repo_root / p
+            return p.resolve()
+        raw = (self.env_config.get("tasks") or {}).get("dataset_root")
+        if not raw:
+            raise ValueError(
+                "tasks.dataset_root must be set in env_config.yaml (or use VATAVARAN_DATASET_ROOT). "
+                "It must contain telemetry/ with per-date folders."
+            )
+        p = Path(raw)
+        p = p if p.is_absolute() else self.repo_root / p
+        return p.resolve()
+
+    def _resolve_telemetry_root(self) -> Path:
+        """Directory whose immediate subfolders are date partitions (YYYY_MM_DD)."""
+
+        return (self._dataset_root / "telemetry").resolve()
+
+    def _load_tasks(self, path: Path) -> list[dict]:
+        suffix = path.suffix.lower()
+        fmt = (self.env_config.get("tasks") or {}).get("format")
+        # Path may be .json or .csv depending on tasks.path / VATAVARAN_TASKS_FILE.
+        if suffix == ".json":
+            return self._load_tasks_json(path)
+        if suffix == ".csv":
+            return self._load_tasks_csv(path)
+        if fmt == "json":
+            return self._load_tasks_json(path)
+        return self._load_tasks_csv(path)
+
     @staticmethod
-    def _load_tasks(path: Path) -> list[dict]:
+    def _load_tasks_json(path: Path) -> list[dict]:
         with path.open("r", encoding="utf-8") as handle:
             payload = json.load(handle)
         if isinstance(payload, dict):
-            return payload.get("tasks", [])
-        return payload
+            tasks = payload.get("tasks", [])
+        else:
+            tasks = payload
+        for task in tasks:
+            if task.get("difficulty"):
+                continue
+            ti = task.get("task_index")
+            if ti:
+                task["difficulty"] = difficulty_from_task_index(ti)
+        return tasks
 
-    def _select_task(self, task_id: str | None = None, difficulty: str | None = None) -> dict:
+    def _load_tasks_csv(self, path: Path) -> list[dict]:
+        df = pd.read_csv(path)
+        required = {"task_id", "difficulty", "task_index", "instruction", "scoring_points"}
+        missing = required - set(df.columns)
+        if missing:
+            raise ValueError(f"Task CSV missing columns {sorted(missing)}: {path}")
+        cfg = self.env_config.get("tasks") or {}
+        default_system = str(cfg.get("default_system", "Bank_filtered"))
+        dates = cfg.get("telemetry_dates") or ["2021_03_05", "2021_03_06", "2021_03_07"]
+        tasks: list[dict] = []
+        for pos, (_, row) in enumerate(df.iterrows()):
+            date = dates[pos % len(dates)]
+            tasks.append(
+                {
+                    "task_id": str(row["task_id"]),
+                    "difficulty": str(row["difficulty"]),
+                    "task_index": str(row["task_index"]).strip(),
+                    "instruction": row["instruction"],
+                    "scoring_points": row["scoring_points"],
+                    "system": default_system,
+                    "date": date,
+                }
+            )
+        return tasks
+
+    def _select_task(
+        self,
+        task_id: str | None = None,
+        difficulty: str | None = None,
+        task_list_index: int | None = None,
+        task_index: str | None = None,
+    ) -> dict:
         if task_id:
             for task in self.tasks:
                 if task.get("task_id") == task_id:
                     return task
+            raise ValueError(f"Unknown task_id: {task_id}")
 
-        if difficulty:
-            filtered = [task for task in self.tasks if task.get("difficulty") == difficulty]
-            if filtered:
-                return random.choice(filtered)
+        candidates = list(self.tasks)
+        if task_index is not None:
+            candidates = [t for t in candidates if t.get("task_index") == task_index]
+        if difficulty is not None:
+            candidates = [t for t in candidates if t.get("difficulty") == difficulty]
+
+        if not candidates:
+            raise ValueError("No tasks match filters (task_index / difficulty).")
+
+        if task_list_index is not None:
+            if task_list_index < 0 or task_list_index >= len(candidates):
+                raise ValueError(
+                    f"task_list_index {task_list_index} out of range for {len(candidates)} candidate tasks"
+                )
+            return candidates[task_list_index]
+
+        if difficulty is not None or task_index is not None:
+            return random.choice(candidates)
 
         task = self.tasks[self._task_cursor % len(self.tasks)]
         self._task_cursor += 1
@@ -148,7 +257,14 @@ class VatavaranEnvironment(Environment):
 
         task_id = kwargs.get("task_id")
         difficulty = kwargs.get("difficulty")
-        self._current_task = self._select_task(task_id=task_id, difficulty=difficulty)
+        task_list_index = kwargs.get("task_list_index")
+        task_index = kwargs.get("task_index")
+        self._current_task = self._select_task(
+            task_id=task_id,
+            difficulty=difficulty,
+            task_list_index=task_list_index,
+            task_index=task_index,
+        )
         self._last_grader_result = None
         self._modalities_explored = set()
 
@@ -156,11 +272,8 @@ class VatavaranEnvironment(Environment):
             self._current_task.get("difficulty", "easy")
         )
 
-        task_data_dir = (
-            self.data_root
-            / self._current_task.get("system", "Bank")
-            / self._current_task.get("date", "")
-        )
+        date = self._current_task.get("date", "")
+        task_data_dir = self.data_root / date
         self._sandbox.reset(working_dir=task_data_dir)
 
         self._state = VatavaranState(
@@ -173,8 +286,15 @@ class VatavaranEnvironment(Environment):
             last_score=None,
         )
 
+        cwd_hint = (
+            "Environment reset. Begin RCA investigation.\n\n"
+            f"Sandbox working directory (already the incident-day telemetry folder): {task_data_dir}\n"
+            "Use paths relative to this directory only: \".\", \"metric\", \"trace\", \"log\", "
+            "or nested paths like \"metric/metric_app.csv\" — do not use repo-root paths such as "
+            "\"data/...\" or repeat \".../telemetry/...\" in list_files or execute_code."
+        )
         return self._build_observation(
-            result="Environment reset. Begin RCA investigation.",
+            result=cwd_hint,
             success=True,
             done=False,
             reward=0.0,
@@ -278,6 +398,7 @@ class VatavaranEnvironment(Environment):
                     "instruction": task.get("instruction"),
                     "system": task.get("system"),
                     "date": task.get("date"),
+                    "task_index": task.get("task_index"),
                 }
             )
         return {

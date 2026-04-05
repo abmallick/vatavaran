@@ -40,6 +40,8 @@ include = ["vatavaran*", "server*"]
 [tool.setuptools.package-data]
 vatavaran = [
   "config/*.yaml",
-  "data/*.json",
-  "data/telemetry/**/*.csv",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
