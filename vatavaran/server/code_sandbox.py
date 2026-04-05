@@ -11,6 +11,7 @@ import threading
 import tempfile
 import traceback
 from pathlib import Path
+from typing import Any
 
 from IPython.terminal.embed import InteractiveShellEmbed
 
@@ -22,6 +23,31 @@ except Exception:  # pragma: no cover - fallback when tokenizer missing
 
 class _ExecutionTimeout(Exception):
     """Raised when code execution exceeds configured timeout."""
+
+
+def _format_ipython_failure(execution: Any) -> str:
+    """Best-effort traceback text from IPython ExecutionResult.
+
+    IPython sets either ``error_in_exec`` (runtime) or ``error_before_exec``
+    (syntax/transform). ``success`` is false if either is set; only reading
+    ``error_in_exec`` can crash when the failure was ``error_before_exec``.
+    """
+
+    exc = execution.error_in_exec or execution.error_before_exec
+    if exc is not None:
+        tb = getattr(exc, "__traceback__", None)
+        return "".join(
+            traceback.format_exception(type(exc), exc, tb)
+        ).strip()
+
+    parts: list[str] = []
+    info = getattr(execution, "info", None)
+    if info is not None:
+        parts.append(f"(IPython did not attach an exception; info={info!r})")
+    else:
+        parts.append("(IPython reported failure but no exception was attached.)")
+    parts.append(f"ExecutionResult: {execution!r}")
+    return "\n".join(parts)
 
 
 class CodeSandbox:
@@ -144,13 +170,7 @@ class CodeSandbox:
         std_err = stderr_buffer.getvalue().strip()
 
         if not execution.success:
-            error_text = "".join(
-                traceback.format_exception(
-                    type(execution.error_in_exec),
-                    execution.error_in_exec,
-                    execution.error_in_exec.__traceback__,
-                )
-            ).strip()
+            error_text = _format_ipython_failure(execution)
             merged = "\n".join([part for part in [std_out, std_err, error_text] if part])
             return False, merged or "Execution failed."
 
