@@ -10,3 +10,4 @@ outputs/
 .python-version
 .DS_Store
 uv.lock
+openrca_env/
