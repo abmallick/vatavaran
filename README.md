@@ -1,3 +1,12 @@
+---
+title: Vatavaran
+emoji: 🍃
+colorFrom: blue
+colorTo: green
+sdk: docker
+app_port: 8000
+---
+
 # Vatavaran Environment (OpenEnv)
 
 Vatavaran is an OpenEnv-compatible benchmark environment for cloud root cause analysis (RCA).  
