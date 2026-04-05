@@ -35,7 +35,3 @@ class VatavaranEnv(EnvClient[VatavaranAction, VatavaranObservation, VatavaranSta
             modalities_explored=payload.get("modalities_explored", []),
             last_score=payload.get("last_score"),
         )
-
-
-# Backward-compatible alias for prior OpenRCA naming.
-OpenrcaEnvEnv = VatavaranEnv

@@ -59,9 +59,3 @@ class VatavaranState(State):
     cumulative_reward: float = Field(default=0.0)
     modalities_explored: list[str] = Field(default_factory=list)
     last_score: float | None = Field(default=None)
-
-
-# Backward-compatible aliases for prior OpenRCA naming.
-OpenrcaEnvAction = VatavaranAction
-OpenrcaEnvObservation = VatavaranObservation
-OpenrcaEnvState = VatavaranState

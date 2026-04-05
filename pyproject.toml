@@ -35,10 +35,10 @@ include-package-data = true
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["openrca_env*", "vatavaran*", "server*"]
+include = ["vatavaran*", "server*"]
 
 [tool.setuptools.package-data]
-openrca_env = [
+vatavaran = [
   "config/*.yaml",
   "data/*.json",
   "data/telemetry/**/*.csv",

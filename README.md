@@ -1,7 +1,7 @@
 # Vatavaran Environment (OpenEnv)
 
 Vatavaran is an OpenEnv-compatible benchmark environment for cloud root cause analysis (RCA).  
-It converts an OpenRCA-style workflow into an interactive environment where an external agent performs telemetry investigation via `reset()`, `step()`, and `state()`.
+It converts an RCA workflow into an interactive environment where an external agent performs telemetry investigation via `reset()`, `step()`, and `state()`.
 
 The environment simulates realistic DevOps RCA work on metrics, traces, and logs using a persistent IPython sandbox.
 
@@ -42,31 +42,25 @@ vatavaran/
 ├── inference.py
 ├── vatavaran/
 │   ├── __init__.py
+│   ├── client.py
+│   ├── models.py
+│   ├── config/
+│   │   ├── env_config.yaml
+│   │   └── reward_config.yaml
+│   ├── data/
+│   │   ├── tasks.json
+│   │   ├── prepare_data.py
+│   │   └── telemetry/Bank/{date}/...
 │   └── server/
-│       └── app.py
-├── server/
-│   └── app.py
-└── openrca_env/
-    ├── __init__.py
-    ├── client.py
-    ├── models.py
-    ├── config/
-    │   ├── env_config.yaml
-    │   └── reward_config.yaml
-    ├── data/
-    │   ├── tasks.json
-    │   ├── prepare_data.py
-    │   └── telemetry/Bank/{date}/...
-    └── server/
-        ├── app.py
-        ├── rca_environment.py
-        ├── code_sandbox.py
-        ├── evaluator.py
-        ├── reward_engine.py
-        └── domain_knowledge.py
+│       ├── app.py
+│       ├── rca_environment.py
+│       ├── code_sandbox.py
+│       ├── evaluator.py
+│       ├── reward_engine.py
+│       └── domain_knowledge.py
+└── server/
+    └── app.py
 ```
-
-`vatavaran` is the public package name. The `openrca_env` package is retained internally for backward compatibility.
 
 ## Action Space
 
@@ -95,11 +89,11 @@ The environment ships with 9 deterministic tasks (3 per level):
 - **Middle** (`task_6`): predict component + reason.
 - **Hard** (`task_7`): predict datetime + component + reason.
 
-Task source file: `openrca_env/data/tasks.json`.
+Task source file: `vatavaran/data/tasks.json`.
 
 ## Grader
 
-The grader (`openrca_env/server/evaluator.py`) is OpenRCA-style:
+The grader (`vatavaran/server/evaluator.py`) is RCA-style:
 
 - component/reason: exact string match,
 - datetime: within 60 seconds,
@@ -113,7 +107,7 @@ You can call:
 
 ## Reward Shaping (Config Driven)
 
-All reward logic is parameterized in `openrca_env/config/reward_config.yaml`:
+All reward logic is parameterized in `vatavaran/config/reward_config.yaml`:
 
 - code execution success reward / error penalty,
 - step efficiency penalty,
@@ -122,7 +116,7 @@ All reward logic is parameterized in `openrca_env/config/reward_config.yaml`:
 - final answer score weight,
 - per-difficulty max step limits.
 
-The runtime/sandbox policy is in `openrca_env/config/env_config.yaml`.
+The runtime/sandbox policy is in `vatavaran/config/env_config.yaml`.
 
 ## Setup
 
@@ -130,7 +124,7 @@ The runtime/sandbox policy is in `openrca_env/config/env_config.yaml`.
 python3 -m venv .venv
 .venv/bin/python -m pip install --upgrade pip
 .venv/bin/pip install -e .
-python3 openrca_env/data/prepare_data.py
+python3 vatavaran/data/prepare_data.py
 ```
 
 ## Run Locally

@@ -331,7 +331,3 @@ class VatavaranEnvironment(Environment):
             "by_difficulty": difficulty_scores,
             "overall_score": total,
         }
-
-
-# Backward-compatible alias for prior OpenRCA naming.
-OpenRCAEnvironment = VatavaranEnvironment
