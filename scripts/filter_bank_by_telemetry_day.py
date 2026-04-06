@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Build data/Bank_filtered from data/Bank for one telemetry calendar day.
 
-Selects query_processed / record rows the same way VatavaranEnvironment assigns
-telemetry dates: row index i maps to telemetry_dates[i % len(telemetry_dates)]
-(see vatavaran/server/rca_environment.py and vatavaran/config/env_config.yaml).
+Keeps only rows whose instruction/scoring text mentions the selected day, so
+`queries.csv` matches the chosen telemetry folder.
 
 Writes queries.csv (same columns as query_processed), aligned record.csv rows, and
 copies data/Bank/telemetry/<DAY>/ into Bank_filtered/telemetry/.
@@ -12,6 +11,7 @@ copies data/Bank/telemetry/<DAY>/ into Bank_filtered/telemetry/.
 from __future__ import annotations
 
 import argparse
+import re
 import shutil
 import sys
 from datetime import datetime
@@ -19,19 +19,21 @@ from pathlib import Path
 
 import pandas as pd
 
-DEFAULT_TELEMETRY_DATES = ("2021_03_05", "2021_03_06", "2021_03_07")
+_MONTH_NAME_DATE_RE = re.compile(
+    r"\b("
+    r"January|February|March|April|May|June|July|August|September|October|November|December"
+    r")\s+(\d{1,2}),\s+(\d{4})\b"
+)
 
-
-def _parse_telemetry_dates(raw: str) -> tuple[str, ...]:
-    parts = tuple(p.strip() for p in raw.split(",") if p.strip())
-    if not parts:
-        sys.exit("Empty --telemetry-dates")
-    for p in parts:
-        try:
-            datetime.strptime(p, "%Y_%m_%d")
-        except ValueError:
-            sys.exit(f"Invalid telemetry date (expected YYYY_MM_DD): {p!r}")
-    return parts
+def _extract_dates_from_text(text: object) -> set[str]:
+    if text is None:
+        return set()
+    s = str(text)
+    out: set[str] = set()
+    for month, day, year in _MONTH_NAME_DATE_RE.findall(s):
+        dt = datetime.strptime(f"{month} {day}, {year}", "%B %d, %Y")
+        out.add(dt.strftime("%Y_%m_%d"))
+    return out
 
 
 def main() -> None:
@@ -40,14 +42,6 @@ def main() -> None:
         "--day",
         default="2021_03_05",
         help="Telemetry folder name under telemetry/ (default: 2021_03_05)",
-    )
-    parser.add_argument(
-        "--telemetry-dates",
-        default=",".join(DEFAULT_TELEMETRY_DATES),
-        help=(
-            "Comma-separated cycle in env task order (default: "
-            f"{','.join(DEFAULT_TELEMETRY_DATES)})"
-        ),
     )
     parser.add_argument(
         "--bank-dir",
@@ -73,14 +67,6 @@ def main() -> None:
     except ValueError:
         sys.exit(f"Invalid --day (expected YYYY_MM_DD): {folder_day!r}")
 
-    telemetry_dates = _parse_telemetry_dates(args.telemetry_dates)
-    if folder_day not in telemetry_dates:
-        sys.exit(
-            f"--day {folder_day!r} must be one of --telemetry-dates: {list(telemetry_dates)}"
-        )
-    day_index = telemetry_dates.index(folder_day)
-    n = len(telemetry_dates)
-
     query_path = bank_dir / "query_processed.csv"
     record_path = bank_dir / "record.csv"
     telemetry_src = bank_dir / "telemetry" / folder_day
@@ -99,7 +85,13 @@ def main() -> None:
             f"Row count mismatch: query_processed ({len(q_df)}) vs record ({len(r_df)})"
         )
 
-    mask = [i % n == day_index for i in range(len(q_df))]
+    if "instruction" not in q_df.columns:
+        sys.exit("query_processed.csv must contain instruction column")
+    mask = []
+    for _, row in q_df.iterrows():
+        row_dates = _extract_dates_from_text(row["instruction"])
+        mask.append(folder_day in row_dates)
+
     filtered_q = q_df.loc[mask].reset_index(drop=True)
     filtered_r = r_df.loc[mask].reset_index(drop=True)
 

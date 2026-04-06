@@ -130,7 +130,7 @@ class VatavaranEnvironment(Environment):
             raise ValueError(f"Task CSV missing columns {sorted(missing)}: {path}")
         cfg = self.env_config.get("tasks") or {}
         default_system = str(cfg.get("default_system", "Bank_filtered"))
-        dates = cfg.get("telemetry_dates") or ["2021_03_05", "2021_03_06", "2021_03_07"]
+        dates = cfg.get("telemetry_dates") or ["2021_03_09"]
         tasks: list[dict] = []
         for pos, (_, row) in enumerate(df.iterrows()):
             date = dates[pos % len(dates)]

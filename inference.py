@@ -8,6 +8,7 @@ MANDATORY / environment variables
 
 Optional
 - IMAGE_NAME / LOCAL_IMAGE_NAME  Docker image for from_docker_image().
+- RCA_ENV_MODE     Environment bootstrap mode: "client" (default) or "local".
 - RCA_BASE_URL + RCA_USE_BASE_URL=true  Remote env server URL.
 - RCA_BENCHMARK    Label for [START] line (default: vatavaran).
 - RCA_MAX_STEPS    Upper bound on steps per episode (default: 32), capped by env max_steps.
@@ -29,18 +30,22 @@ import json
 import os
 import re
 import textwrap
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from openai import OpenAI
 
 from vatavaran import VatavaranAction, VatavaranEnv
+from vatavaran.server.rca_environment import VatavaranEnvironment
 
+REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
 IMAGE_NAME = os.getenv("IMAGE_NAME", "vatavaran") or os.getenv("LOCAL_IMAGE_NAME")
 API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY")
 API_BASE_URL = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
 MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
 BENCHMARK = os.getenv("RCA_BENCHMARK", "vatavaran")
-DEFAULT_TASK_IDS = ("Bank_00003", "Bank_00006", "Bank_00009")
+DEFAULT_TASK_IDS = ("Bank_00017","Bank_00018","Bank_00019","Bank_00020","Bank_00021","Bank_00022","Bank_00024", "Bank_00057", "Bank_00058", "Bank_00059", )# "Bank_00015", "Bank_00016", "Bank_00023"
 
 
 def _parse_task_ids() -> list[str]:
@@ -52,6 +57,7 @@ def _parse_task_ids() -> list[str]:
 
 RCA_BASE_URL = os.getenv("RCA_BASE_URL")
 RCA_USE_BASE_URL = (os.getenv("RCA_USE_BASE_URL") or "false").lower() == "true"
+RCA_ENV_MODE = (os.getenv("RCA_ENV_MODE") or "client").strip().lower()
 RCA_MAX_STEPS = int(os.getenv("RCA_MAX_STEPS", "32"))
 RCA_SEED = os.getenv("RCA_SEED")
 
@@ -83,13 +89,31 @@ TEMPERATURE = float(os.getenv("RCA_TEMPERATURE", "0"))
 MAX_TOKENS = int(os.getenv("RCA_MAX_TOKENS", "2048"))
 SUCCESS_SCORE_THRESHOLD = 0.5
 
-_JSON_PARSE_RETRIES = 3
+_JSON_PARSE_RETRIES = 1
+_RAW_LOG_CONVERSATION_PATH = os.getenv("RCA_CONVERSATION_LOG_PATH", "log_conversation.json")
+
+
+def _resolve_log_path(raw_path: str) -> str:
+    """Resolve conversation log path relative to repo root, not process cwd."""
+    expanded = os.path.expanduser(raw_path)
+    if os.path.isabs(expanded):
+        return expanded
+    return os.path.join(REPO_ROOT, expanded)
+
+
+LOG_CONVERSATION_PATH = _resolve_log_path(_RAW_LOG_CONVERSATION_PATH)
 
 ALLOWED_ACTIONS = frozenset({"list_files", "execute_code", "submit_answer"})
 
 SYSTEM_PROMPT = textwrap.dedent(
     """
-    You are an agent solving a root cause analysis (RCA) task in a simulated environment.
+    You are an agent solving a root cause analysis (RCA) task in a production system.
+    You are provided the a time range of the incident and the telemetry data for that day. 
+    The telemetry data is organized into three directories: metric, trace, and log.
+    
+    metric folder contains values and timestamps for various metrics at app level and container level.
+    log folder contains failure logs for different components by timestamp and log name
+    
 
     PATH RULES (critical): The sandbox process starts **inside** the incident-day telemetry directory
     (it already contains `metric/`, `trace/`, `log/`). For `list_files`, `content` must be a path
@@ -100,12 +124,14 @@ SYSTEM_PROMPT = textwrap.dedent(
 
     Each turn you must choose exactly one action by replying with a single JSON object only
     (no markdown fences, no extra text), with this shape:
-    {"action_type":"<type>","content":"<string>"}
+    {"action_type":"<type>","content":"<string>","reasoning":"<string>"}
 
     action_type must be one of:
     - list_files — content is the path to list (e.g. "." or "metric").
     - execute_code — content is Python source to run in the task sandbox.
     - submit_answer — content is a JSON string for the final diagnosis (format required by the task).
+    - reasoning — required short explanation for why this action is chosen. Include all the learnings you have made from the previous actions and observations which led to this action along with any other relevant information.
+
 
     Use the conversation history: previous assistant messages are your past actions; user messages
     labeled "Environment result" are the outcomes of those actions (like tool returns).
@@ -157,11 +183,14 @@ def _parse_action_json(text: str) -> VatavaranAction:
         raise ValueError("JSON root must be an object")
     action_type = data.get("action_type")
     content = data.get("content", "")
+    reasoning = data.get("reasoning")
     if action_type not in ALLOWED_ACTIONS:
         raise ValueError(f"Invalid action_type: {action_type!r}")
     if not isinstance(content, str):
         content = json.dumps(content) if content is not None else ""
-    return VatavaranAction(action_type=action_type, content=content)
+    if not isinstance(reasoning, str) or not reasoning.strip():
+        raise ValueError("Missing or empty `reasoning`")
+    return VatavaranAction(action_type=action_type, content=content, reasoning=reasoning.strip())
 
 
 def _score_from_submit_result(result_text: str, fallback: float) -> float:
@@ -181,7 +210,35 @@ def _env_ws_kwargs() -> dict[str, Any]:
     }
 
 
-async def _build_env() -> VatavaranEnv:
+@dataclass
+class _EnvStepResult:
+    observation: Any
+    reward: float | None
+    done: bool
+
+
+class LocalVatavaranEnvAdapter:
+    """Async-compatible adapter for in-process VatavaranEnvironment."""
+
+    def __init__(self, env: VatavaranEnvironment):
+        self._env = env
+
+    async def reset(self, **kwargs: Any) -> _EnvStepResult:
+        obs = self._env.reset(**kwargs)
+        return _EnvStepResult(observation=obs, reward=getattr(obs, "reward", 0.0), done=bool(obs.done))
+
+    async def step(self, action: VatavaranAction) -> _EnvStepResult:
+        obs = self._env.step(action)
+        return _EnvStepResult(observation=obs, reward=getattr(obs, "reward", 0.0), done=bool(obs.done))
+
+    async def close(self) -> None:
+        return None
+
+
+async def _build_env() -> Any:
+    if RCA_ENV_MODE == "local":
+        return LocalVatavaranEnvAdapter(VatavaranEnvironment())
+
     ws_kw = _env_ws_kwargs()
     if RCA_USE_BASE_URL and RCA_BASE_URL:
         return VatavaranEnv(base_url=RCA_BASE_URL, **ws_kw)
@@ -207,16 +264,43 @@ def _initial_user_message(
         Task description:
         {task_description}
 
-        Path rules: Your first message after reset includes the sandbox working directory. Use only
-        relative paths for list_files and file I/O in execute_code (".", "metric", "trace", "log").
-        Never use repo-style paths like data/.../telemetry/...
+        When you choose execute_code, you have to write the code which is passed to the sandbox to execute.
+        Use the code to analyze the telemetry data and find the root cause.
+
+        Use list_files to figure out what files are available to you.
+
+
+        First try to understand the overall structure of the telemetry data by writing a script analyze the data distributions in all the files. 
+        Your job is to first figure out what anomalous behavior was observed in the telemetry data in the query time range. 
+        Write scripts to analyze metrics, logs and traces to do so and corroborate across different modalities where relevant. 
+
+        One you figure our the anomalous behaviour, try to find the root cause by tracking which component started exhibiting the anomalous behaviour first or started getting errors in logs and traces first. 
+        The root cause component should be one of the components in cmdb_id column of the logs or traces.
+
+        Root cause can consist of three elements: component, reason and datetime of occurrence.
+
+        It may not always be possible to find the reason and datetime of occurrence. In that case, you can leave it blank. Always try to find the most plausible component at least. 
+
+        Once you have the root cause, use the submit_answer action to submit your answer.
+
+        the format of the answer is which should be passed as the content of the submit_answer action:
+   
+        "root cause occurrence datetime":"<datetime>"
+        "root cause component":"<component>"
+        "root cause reason":"<reason>"
 
         Domain knowledge (reference):
         {domain_knowledge}
 
-        Max steps for this episode: {max_steps}
 
-        Respond with your first action as JSON only: {{"action_type":"...","content":"..."}}
+        Respond with your first action as JSON only: {{"action_type":"...","content":"...","reasoning":"..."}}
+
+        All the timestamps are in UTC+8 timezone. So always use that for convertions and comparisons and not the local timezone.
+        Make sure that root cause component is a valid component name from the domain knowledge.
+        Make sure that root cause reason is a valid reason from the domain knowledge.
+        DO NOT prematurely jump to conclusions. 
+        Run anomaly detection, causal analysis, time series analysis and any other relevant algorithms to find the root cause.
+        Make sure you understand the data content and format before you start implementing analysis code to make sure you dont write buggy code.
         """
     ).strip()
 
@@ -238,12 +322,53 @@ def _env_result_user_message(obs: Any, reward: float, done: bool) -> str:
     return body
 
 
+def _append_conversation_event(
+    path: str,
+    task_id: str,
+    role: str,
+    content: str,
+    metadata: dict[str, Any] | None = None,
+) -> None:
+    event: dict[str, Any] = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "role": role,
+        "content": content,
+    }
+    if metadata:
+        event["metadata"] = metadata
+
+    payload: dict[str, Any]
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as fp:
+                payload = json.load(fp)
+        except Exception:
+            payload = {"tasks": {}}
+    else:
+        payload = {"tasks": {}}
+
+    tasks = payload.setdefault("tasks", {})
+    task_events = tasks.setdefault(task_id, [])
+    task_events.append(event)
+
+    with open(path, "w", encoding="utf-8") as fp:
+        json.dump(payload, fp, indent=2)
+
+
+def _reset_conversation_log(path: str) -> None:
+    parent = os.path.dirname(path)
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fp:
+        json.dump({"tasks": {}}, fp, indent=2)
+
+
 def get_model_action(client: OpenAI, messages: list[dict[str, str]]) -> str:
     completion = client.chat.completions.create(
         model=MODEL_NAME,
         messages=messages,
         temperature=TEMPERATURE,
-        max_tokens=MAX_TOKENS,
+        #max_tokens=MAX_TOKENS,
         stream=False,
     )
     return (completion.choices[0].message.content or "").strip()
@@ -287,6 +412,20 @@ async def _run_episode(client: OpenAI, env: VatavaranEnv, task_id: str) -> None:
                 ),
             },
         ]
+        _append_conversation_event(
+            LOG_CONVERSATION_PATH,
+            task_name,
+            "system",
+            SYSTEM_PROMPT,
+            {"event_type": "episode_start"},
+        )
+        _append_conversation_event(
+            LOG_CONVERSATION_PATH,
+            task_name,
+            "user",
+            messages[1]["content"],
+            {"event_type": "initial_instruction"},
+        )
 
         if reset_result.done:
             score = _score_from_submit_result(obs.result, 0.0)
@@ -299,29 +438,126 @@ async def _run_episode(client: OpenAI, env: VatavaranEnv, task_id: str) -> None:
             assistant_text = ""
 
             while action is None and parse_failures < _JSON_PARSE_RETRIES:
+                request_payload = [
+                    {"role": str(msg.get("role", "")), "content": str(msg.get("content", ""))}
+                    for msg in messages
+                ]
+                _append_conversation_event(
+                    LOG_CONVERSATION_PATH,
+                    task_name,
+                    "system",
+                    json.dumps(request_payload, ensure_ascii=False, indent=2),
+                    {
+                        "event_type": "llm_request",
+                        "step": step,
+                        "attempt": parse_failures + 1,
+                        "message_count": len(request_payload),
+                    },
+                )
                 try:
                     assistant_text = get_model_action(client, messages)
-                    action = _parse_action_json(assistant_text)
+                    _append_conversation_event(
+                        LOG_CONVERSATION_PATH,
+                        task_name,
+                        "assistant",
+                        assistant_text or "(empty)",
+                        {
+                            "event_type": "llm_response",
+                            "step": step,
+                            "attempt": parse_failures + 1,
+                        },
+                    )
                 except Exception as exc:
                     parse_failures += 1
                     messages.append({"role": "assistant", "content": assistant_text or "(empty)"})
+                    _append_conversation_event(
+                        LOG_CONVERSATION_PATH,
+                        task_name,
+                        "assistant",
+                        assistant_text or "(empty)",
+                        {"event_type": "action_parse_retry", "parse_failures": parse_failures},
+                    )
+                    _append_conversation_event(
+                        LOG_CONVERSATION_PATH,
+                        task_name,
+                        "system",
+                        f"Model API call failed: {exc}",
+                        {
+                            "event_type": "api_call_failure",
+                            "step": step,
+                            "parse_failures": parse_failures,
+                            "error_type": type(exc).__name__,
+                            "error_message": str(exc),
+                        },
+                    )
                     messages.append(
                         {
                             "role": "user",
                             "content": (
                                 "Invalid or missing JSON action. Reply with a single JSON object only: "
-                                '{"action_type":"list_files"|"execute_code"|"submit_answer","content":"..."} '
+                                '{"action_type":"list_files"|"execute_code"|"submit_answer","content":"...","reasoning":"..."} '
                                 f"Parse error: {exc}"
                             ),
                         }
                     )
+                    _append_conversation_event(
+                        LOG_CONVERSATION_PATH,
+                        task_name,
+                        "user",
+                        messages[-1]["content"],
+                        {"event_type": "parse_feedback"},
+                    )
+                    continue
+
+                try:
+                    action = _parse_action_json(assistant_text)
+                except Exception as exc:
+                    parse_failures += 1
+                    messages.append({"role": "assistant", "content": assistant_text or "(empty)"})
+                    _append_conversation_event(
+                        LOG_CONVERSATION_PATH,
+                        task_name,
+                        "assistant",
+                        assistant_text or "(empty)",
+                        {"event_type": "action_parse_retry", "parse_failures": parse_failures},
+                    )
+                    messages.append(
+                        {
+                            "role": "user",
+                            "content": (
+                                "Invalid or missing JSON action. Reply with a single JSON object only: "
+                                '{"action_type":"list_files"|"execute_code"|"submit_answer","content":"...","reasoning":"..."} '
+                                f"Parse error: {exc}"
+                            ),
+                        }
+                    )
+                    _append_conversation_event(
+                        LOG_CONVERSATION_PATH,
+                        task_name,
+                        "user",
+                        messages[-1]["content"],
+                        {"event_type": "parse_feedback"},
+                    )
 
             if action is None:
-                action = VatavaranAction(action_type="list_files", content=".")
+                print("No action found in step", step, flush=True)
+                continue
 
             messages.append({"role": "assistant", "content": assistant_text or json.dumps(action.model_dump())})
-
+            _append_conversation_event(
+                LOG_CONVERSATION_PATH,
+                task_name,
+                "assistant",
+                messages[-1]["content"],
+                {
+                    "event_type": "agent_action",
+                    "step": step,
+                    "action_type": action.action_type,
+                    "reasoning": action.reasoning,
+                },
+            )
             step_result = await env.step(action)
+
             obs = step_result.observation
             reward = _safe_reward(step_result.reward)
             done = bool(step_result.done)
@@ -330,11 +566,29 @@ async def _run_episode(client: OpenAI, env: VatavaranEnv, task_id: str) -> None:
             rewards.append(reward)
             steps_taken = step
 
-            action_str = json.dumps({"action_type": action.action_type, "content": action.content})
+            action_str = json.dumps(
+                {
+                    "action_type": action.action_type,
+                    "content": action.content,
+                    "reasoning": action.reasoning,
+                }
+            )
             log_step(step=step, action=action_str, reward=reward, done=done, error=err)
 
             messages.append(
                 {"role": "user", "content": _env_result_user_message(obs, reward, done)}
+            )
+            _append_conversation_event(
+                LOG_CONVERSATION_PATH,
+                task_name,
+                "user",
+                messages[-1]["content"],
+                {
+                    "event_type": "environment_result",
+                    "step": step,
+                    "reward": reward,
+                    "done": done,
+                },
             )
 
             if done:
@@ -365,6 +619,8 @@ async def main() -> None:
     if not task_ids:
         print("[ERROR] At least one task id is required (RCA_TASK_IDS or default list).", flush=True)
         raise SystemExit(1)
+
+    _reset_conversation_log(LOG_CONVERSATION_PATH)
 
     client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY or "missing-key")
     env = await _build_env()

@@ -19,6 +19,10 @@ class VatavaranAction(Action):
         default="",
         description="Payload for the action. Python code, path, or JSON answer.",
     )
+    reasoning: str = Field(
+        default="",
+        description="Reasoning for the action. This is the reasoning for the action that the agent has taken.",
+    )
 
 
 class VatavaranObservation(Observation):
