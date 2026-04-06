@@ -2,7 +2,7 @@
 
 sandbox:
   output_token_limit: 16384
-  execution_timeout_sec: 30
+  execution_timeout_sec: 60
   blocked_imports:
     - matplotlib
     - seaborn
@@ -26,4 +26,4 @@ tasks:
   default_system: Bank_filtered
   dataset_root: data/Bank_filtered
   telemetry_dates:
-    - "2021_03_05"
+    - "2021_03_09"

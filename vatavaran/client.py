@@ -122,6 +122,7 @@ class VatavaranEnv(EnvClient[VatavaranAction, VatavaranObservation, VatavaranSta
         return {
             "action_type": action.action_type,
             "content": action.content,
+            "reasoning": action.reasoning,
         }
 
     def _parse_result(self, payload: dict) -> StepResult[VatavaranObservation]:
