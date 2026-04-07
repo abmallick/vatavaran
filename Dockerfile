@@ -10,9 +10,12 @@ COPY . /app/env
 
 RUN apt-get update && apt-get install -y --no-install-recommends curl unzip && rm -rf /var/lib/apt/lists/*
 
+# gdown handles Google Drive large-file confirmation flows.
+RUN pip install --no-cache-dir gdown
+
 # Download and extract dataset into vatavaran/data during image build.
 RUN mkdir -p /app/env/vatavaran/data \
-  && curl -L "${DATASET_URL}" -o /tmp/Bank_filtered.zip \
+  && gdown "${DATASET_URL}" -O /tmp/Bank_filtered.zip \
   && unzip -q /tmp/Bank_filtered.zip -d /app/env/vatavaran/data \
   && rm -f /tmp/Bank_filtered.zip
 
