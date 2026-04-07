@@ -26,10 +26,9 @@ API_BASE_URL = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
 MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
 BENCHMARK = os.getenv("RCA_BENCHMARK", "vatavaran")
 MAX_STEPS = int(os.getenv("RCA_MAX_STEPS", "3"))
-EPISODE_COUNT = int(os.getenv("RCA_EPISODE_COUNT", "3"))
 RCA_BASE_URL = os.getenv("RCA_BASE_URL")
 RCA_USE_BASE_URL = (os.getenv("RCA_USE_BASE_URL") or "false").lower() == "true"
-DIFFICULTY_ORDER = ["easy", "middle", "hard"]
+RCA_TASK_ID = (os.getenv("RCA_TASK_ID") or "").strip() or None
 
 
 def _clean_action(action: str, limit: int = 140) -> str:
@@ -136,7 +135,7 @@ def _score_from_submit_result(result_text: str, fallback: float) -> float:
         score = float(payload.get("score", fallback))
     except Exception:
         score = fallback
-    return min(max(score, 0.0), 1.0)
+    return min(max(score, 0.01), 0.99)
 
 
 async def _build_env() -> VatavaranEnv:
@@ -149,19 +148,21 @@ async def _build_env() -> VatavaranEnv:
 
 
 def _safe_reward(value: float | None) -> float:
-    return min(max(float(value or 0.0), 0.0), 1.0)
+    return min(max(float(value or 0.0), 0.01), 0.99)
 
 
-async def _run_episode(client: OpenAI, episode_idx: int) -> tuple[bool, float]:
+async def _run_episode(client: OpenAI, task_id: str | None = None) -> tuple[bool, float]:
     env = await _build_env()
     rewards: list[float] = []
     steps_taken = 0
     score = 0.0
     success = False
-    task_name = f"episode_{episode_idx}"
+    task_name = task_id or "episode"
     try:
-        difficulty = DIFFICULTY_ORDER[(episode_idx - 1) % len(DIFFICULTY_ORDER)]
-        reset_result = await env.reset(difficulty=difficulty, seed=episode_idx)
+        reset_kwargs: dict[str, Any] = {}
+        if task_id:
+            reset_kwargs["task_id"] = task_id
+        reset_result = await env.reset(**reset_kwargs)
         task_name = reset_result.observation.task_id or task_name
         task_description = reset_result.observation.task_description
 
@@ -180,7 +181,7 @@ async def _run_episode(client: OpenAI, episode_idx: int) -> tuple[bool, float]:
         )
         if step_result.done or MAX_STEPS <= 1:
             score = _score_from_submit_result(
-                step_result.observation.result, min(max(rewards[-1], 0.0), 1.0)
+                step_result.observation.result, min(max(rewards[-1], 0.01), 0.99)
             )
             success = score >= 0.5
             return success, score
@@ -221,7 +222,7 @@ async def _run_episode(client: OpenAI, episode_idx: int) -> tuple[bool, float]:
         )
         if step_result.done or MAX_STEPS <= 2:
             score = _score_from_submit_result(
-                step_result.observation.result, min(max(rewards[-1], 0.0), 1.0)
+                step_result.observation.result, min(max(rewards[-1], 0.01), 0.99)
             )
             success = score >= 0.5
             return success, score
@@ -251,7 +252,7 @@ async def _run_episode(client: OpenAI, episode_idx: int) -> tuple[bool, float]:
 
         score = _score_from_submit_result(
             step_result.observation.result,
-            min(max(step_result.reward or 0.0, 0.0), 1.0),
+            min(max(step_result.reward or 0.0, 0.01), 0.99),
         )
         success = score >= 0.5
         return success, score
@@ -263,15 +264,14 @@ async def _run_episode(client: OpenAI, episode_idx: int) -> tuple[bool, float]:
         log_end(
             success=success,
             steps=steps_taken,
-            score=min(max(score, 0.0), 1.0),
+            score=min(max(score, 0.01), 0.99),
             rewards=rewards,
         )
 
 
 async def main():
     client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY or "missing-key")
-    for i in range(1, EPISODE_COUNT + 1):
-        await _run_episode(client, i)
+    await _run_episode(client, task_id=RCA_TASK_ID)
 
 
 if __name__ == "__main__":

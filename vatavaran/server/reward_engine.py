@@ -13,7 +13,7 @@ class RewardEngine:
 
     @staticmethod
     def _clamp01(value: float) -> float:
-        return min(max(value, 0.0), 1.0)
+        return min(max(value, 0.01), 0.99)
 
     def step_penalty(self) -> float:
         step_cfg = self.config.get("step_efficiency", {})

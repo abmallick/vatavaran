@@ -1,12 +1,20 @@
 ARG BASE_IMAGE=python:3.11-slim
 FROM ${BASE_IMAGE}
 
+ARG DATASET_URL="https://drive.usercontent.google.com/download?id=1k3c-kH7TG4l0fq0haTdvRugW9NoNWorX&export=download&authuser=0"
+
 WORKDIR /app/env
 
 # Copy full environment source
 COPY . /app/env
 
-RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends curl unzip && rm -rf /var/lib/apt/lists/*
+
+# Download and extract dataset into vatavaran/data during image build.
+RUN mkdir -p /app/env/vatavaran/data \
+  && curl -L "${DATASET_URL}" -o /tmp/Bank_filtered.zip \
+  && unzip -q /tmp/Bank_filtered.zip -d /app/env/vatavaran/data \
+  && rm -f /tmp/Bank_filtered.zip
 
 # Install package and dependencies
 RUN pip install --no-cache-dir -e .

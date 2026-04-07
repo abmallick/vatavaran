@@ -63,7 +63,7 @@ def evaluate_prediction(prediction: str, scoring_points: str) -> dict:
         return {
             "passed_criteria": [],
             "failed_criteria": [],
-            "score": 0.0,
+            "score": 0.01,
         }
 
     if len(predicted) != target_count:
@@ -71,7 +71,7 @@ def evaluate_prediction(prediction: str, scoring_points: str) -> dict:
         return {
             "passed_criteria": [],
             "failed_criteria": all_criteria,
-            "score": 0.0,
+            "score": 0.01,
         }
 
     best_score = -1
@@ -103,6 +103,7 @@ def evaluate_prediction(prediction: str, scoring_points: str) -> dict:
             best_passing = passing
 
     score = round(max(best_score, 0) / criteria_count, 2)
+    score = max(0.01, min(0.99, score))
     all_criteria = list(dict.fromkeys(components + reasons + times))
     failed = [criterion for criterion in all_criteria if criterion not in best_passing]
     return {
