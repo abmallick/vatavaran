@@ -14,7 +14,7 @@ Optional
 - RCA_MAX_STEPS    Upper bound on steps per episode (default: 32), capped by env max_steps.
 - RCA_SEED         Optional int passed to reset(seed=...).
 - RCA_TASK_ID      Optional task id override; if unset, /reset decides task.
-- RCA_MESSAGE_TIMEOUT_S  Max seconds to wait for each env WebSocket reply (default: 300).
+- RCA_MESSAGE_TIMEOUT_S  Max seconds to wait for each env WebSocket reply (default: 600).
 - RCA_WS_PING_INTERVAL   WebSocket keepalive ping interval in seconds (default: 60). Set to
                          "none" to disable client pings (can avoid keepalive timeouts on very
                          long server-side work; less ideal through proxies).
@@ -35,6 +35,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from openai import OpenAI
+from websockets.exceptions import ConnectionClosedError
 
 from vatavaran import VatavaranAction, VatavaranEnv
 from vatavaran.server.rca_environment import VatavaranEnvironment
@@ -48,21 +49,21 @@ BENCHMARK = os.getenv("RCA_BENCHMARK", "vatavaran")
 RCA_TASK_ID = (os.getenv("RCA_TASK_ID") or "").strip() or None
 
 
-RCA_BASE_URL = os.getenv("RCA_BASE_URL")
-RCA_USE_BASE_URL = (os.getenv("RCA_USE_BASE_URL") or "false").lower() == "true"
+RCA_BASE_URL = "https://abmallick-vatavaran.hf.space"
+RCA_USE_BASE_URL = (os.getenv("RCA_USE_BASE_URL") or "true").lower() == "true"
 RCA_ENV_MODE = (os.getenv("RCA_ENV_MODE") or "client").strip().lower()
-RCA_MAX_STEPS = int(os.getenv("RCA_MAX_STEPS", "32"))
+RCA_MAX_STEPS = int(os.getenv("RCA_MAX_STEPS", "4"))
 RCA_SEED = os.getenv("RCA_SEED")
 
 
 def _parse_message_timeout_s() -> float:
-    return float(os.getenv("RCA_MESSAGE_TIMEOUT_S", "300"))
+    return float(os.getenv("RCA_MESSAGE_TIMEOUT_S", "600"))
 
 
 def _parse_ws_ping_interval() -> float | None:
     env = os.getenv("RCA_WS_PING_INTERVAL")
     if env is None:
-        return 60.0
+        return None
     raw = env.strip().lower()
     if raw in ("none", "off", "disable"):
         return None
@@ -367,7 +368,7 @@ def get_model_action(client: OpenAI, messages: list[dict[str, str]]) -> str:
     return (completion.choices[0].message.content or "").strip()
 
 
-async def _run_episode(client: OpenAI, env: VatavaranEnv, task_id: str | None) -> None:
+async def _run_episode(client: OpenAI, env: VatavaranEnv, task_id: str) -> None:
     rewards: list[float] = []
     steps_taken = 0
     score = 0.0
@@ -551,7 +552,22 @@ async def _run_episode(client: OpenAI, env: VatavaranEnv, task_id: str | None) -
                     "reasoning": action.reasoning,
                 },
             )
-            step_result = await env.step(action)
+            try:
+                step_result = await env.step(action)
+            except ConnectionClosedError as exc:
+                print(f"[ERROR] env.step connection closed at step {step}: {exc}", flush=True)
+                _append_conversation_event(
+                    LOG_CONVERSATION_PATH,
+                    task_name,
+                    "system",
+                    str(exc),
+                    {
+                        "event_type": "env_step_connection_closed",
+                        "step": step,
+                        "error_type": type(exc).__name__,
+                    },
+                )
+                break
 
             obs = step_result.observation
             reward = _safe_reward(step_result.reward)

@@ -5,21 +5,6 @@ runtime: fastapi
 app: vatavaran.server.app:app
 port: 8000
 tasks:
-  - id: easy_1
-    grader: graders:EasyGrader1
-  - id: easy_2
-    grader: graders:EasyGrader2
-  - id: easy_3
-    grader: graders:EasyGrader3
-  - id: middle_1
-    grader: graders:MiddleGrader1
-  - id: middle_2
-    grader: graders:MiddleGrader2
-  - id: middle_3
-    grader: graders:MiddleGrader3
-  - id: hard_1
-    grader: graders:HardGrader1
-  - id: hard_2
-    grader: graders:HardGrader2
-  - id: hard_3
-    grader: graders:HardGrader3
+  - id: Bank_00018
+  - id: Bank_00020
+  - id: Bank_00057
