@@ -32,9 +32,12 @@ POSSIBLE_COMPONENTS = [
 
 SCHEMA_TEXT = """## TELEMETRY DIRECTORY STRUCTURE
 
-- Telemetry root: `data/telemetry/Bank/`
-- Date partitions: `.../Bank/{YYYY_MM_DD}/`
-- Per-date folders: `metric/`, `trace/`, `log/`
+- Your code and `list_files` run with **current working directory = one incident-day folder** that already contains `metric/`, `trace/`, and `log/`. Use **relative paths only** (e.g. `"."`, `"metric"`, `"trace"`, `"log"`). Do **not** pass full project paths like `data/.../telemetry/...` into actions — those are host layout, not sandbox paths.
+- On the host machine, that folder corresponds to `<dataset_root>/telemetry/{YYYY_MM_DD}/` (see `env_config.yaml` `dataset_root`).
+- Under each date folder:
+  - `metric/` — CSV files (see below)
+  - `trace/` — trace_span.csv
+  - `log/` — log_service.csv
 - CSV files:
   - metric_app.csv
   - metric_container.csv
