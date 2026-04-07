@@ -20,6 +20,7 @@ dependencies = [
   "tiktoken>=0.7.0",
   "openai>=1.54.0",
   "pytz>=2022.7",
+  "streamlit>=1.36.0",
 ]
 
 [project.optional-dependencies]
@@ -40,6 +41,8 @@ include = ["vatavaran*", "server*"]
 [tool.setuptools.package-data]
 vatavaran = [
   "config/*.yaml",
-  "data/*.json",
-  "data/telemetry/**/*.csv",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
