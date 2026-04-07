@@ -13,10 +13,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl unzip && r
 # gdown handles Google Drive large-file confirmation flows.
 RUN pip install --no-cache-dir gdown
 
-# Download and extract dataset into vatavaran/data during image build.
-RUN mkdir -p /app/env/vatavaran/data \
+# Download and extract dataset into data/ (repo_root = /app/env, tasks.path = data/Bank_filtered/...).
+RUN mkdir -p /app/env/data \
   && gdown "${GDRIVE_FILE_ID}" -O /tmp/Bank_filtered.zip \
-  && unzip -q /tmp/Bank_filtered.zip -d /app/env/vatavaran/data \
+  && unzip -q /tmp/Bank_filtered.zip -d /app/env/data \
   && rm -f /tmp/Bank_filtered.zip
 
 # Install package and dependencies
