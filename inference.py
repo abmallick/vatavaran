@@ -26,8 +26,8 @@ API_BASE_URL = os.getenv("API_BASE_URL") or "https://router.huggingface.co/v1"
 MODEL_NAME = os.getenv("MODEL_NAME") or "Qwen/Qwen2.5-72B-Instruct"
 BENCHMARK = os.getenv("RCA_BENCHMARK", "vatavaran")
 MAX_STEPS = int(os.getenv("RCA_MAX_STEPS", "3"))
-RCA_BASE_URL = os.getenv("RCA_BASE_URL")
-RCA_USE_BASE_URL = (os.getenv("RCA_USE_BASE_URL") or "false").lower() == "true"
+RCA_BASE_URL = "https://abmallick-vatavaran.hf.space"
+RCA_USE_BASE_URL = True
 RCA_TASK_ID = (os.getenv("RCA_TASK_ID") or "").strip() or None
 
 
