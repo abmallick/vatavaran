@@ -43,7 +43,11 @@ Validation command:
 ## Project Layout
 
 ```text
-vatavaran/
+├── data/
+│   └── Bank_filtered/                  # repo-root dataset (env_config dataset_root)
+│       ├── queries.csv
+│       ├── record.csv
+│       └── telemetry/{YYYY_MM_DD}/...
 ├── openenv.yaml
 ├── pyproject.toml
 ├── uv.lock
@@ -57,9 +61,7 @@ vatavaran/
 │   │   ├── env_config.yaml
 │   │   └── reward_config.yaml
 │   ├── data/
-│   │   ├── tasks.json
-│   │   ├── prepare_data.py
-│   │   └── telemetry/Bank/{date}/...
+│   │   └── prepare_data.py             # optional dev generator (not used by the server)
 │   └── server/
 │       ├── app.py
 │       ├── rca_environment.py
@@ -92,13 +94,9 @@ vatavaran/
 
 ## Tasks and Difficulty
 
-The environment ships with 9 deterministic tasks (3 per level):
+Tasks are loaded from the CSV path in `vatavaran/config/env_config.yaml` (`tasks.path`, default `data/Bank_filtered/queries.csv`). Telemetry for each episode comes from `tasks.dataset_root` (default `data/Bank_filtered`) under `telemetry/<YYYY_MM_DD>/`. Override paths with `VATAVARAN_TASKS_FILE` and `VATAVARAN_DATASET_ROOT` if needed.
 
-- **Easy** (`task_3`): predict component only.
-- **Middle** (`task_6`): predict component + reason.
-- **Hard** (`task_7`): predict datetime + component + reason.
-
-Task source file: `vatavaran/data/tasks.json`.
+Difficulty follows OpenRCA rules on `task_index` (e.g. **Easy** `task_3`: component only; **Middle** `task_6`: component + reason; **Hard** `task_7`: datetime + component + reason).
 
 ## Grader
 
@@ -133,8 +131,9 @@ The runtime/sandbox policy is in `vatavaran/config/env_config.yaml`.
 python3 -m venv .venv
 .venv/bin/python -m pip install --upgrade pip
 .venv/bin/pip install -e .
-python3 vatavaran/data/prepare_data.py
 ```
+
+Ensure the dataset in `data/Bank_filtered/` exists (see `env_config.yaml`: `queries.csv`, `record.csv`, and `telemetry/`). To build it from the full Bank export, use `scripts/filter_bank_by_telemetry_day.py`.
 
 ## Run Locally
 
@@ -177,13 +176,7 @@ The script emits only:
 
 ## Reproducible Baseline Scores
 
-Example run (`RCA_EPISODE_COUNT=3`, tasks `easy_1`, `middle_1`, `hard_1`):
-
-- easy_1: score `1.00`
-- middle_1: score `1.00`
-- hard_1: score `0.67`
-
-These are deterministic with the shipped synthetic dataset and heuristic execution policy.
+Scores depend on the loaded task CSV, model, and agent policy. Tune `RCA_EPISODE_COUNT` and task selection env vars to match your evaluation harness.
 
 ## Docker
 

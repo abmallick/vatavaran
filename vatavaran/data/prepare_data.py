@@ -1,4 +1,7 @@
-"""Generate deterministic synthetic Bank telemetry and RCA tasks."""
+"""Optional dev script: generate synthetic telemetry and a small tasks.json.
+
+Not used by VatavaranEnvironment (runtime loads tasks from env_config and dataset_root).
+"""
 
 from __future__ import annotations
 
@@ -11,9 +14,9 @@ from pathlib import Path
 
 random.seed(7)
 
-PACKAGE_ROOT = Path(__file__).resolve().parents[1]
-DATA_ROOT = PACKAGE_ROOT / "data"
-TELEMETRY_ROOT = DATA_ROOT / "telemetry" / "Bank"
+REPO_ROOT = Path(__file__).resolve().parents[2]
+SYNTHETIC_ROOT = REPO_ROOT / "data" / "synthetic_dev"
+TELEMETRY_ROOT = SYNTHETIC_ROOT / "telemetry" / "Bank"
 
 COMPONENTS = [
     "Tomcat01",
@@ -250,7 +253,7 @@ def main():
         _write_date_telemetry(incident)
 
     tasks = _build_tasks()
-    tasks_path = DATA_ROOT / "tasks.json"
+    tasks_path = SYNTHETIC_ROOT / "tasks.json"
     tasks_path.parent.mkdir(parents=True, exist_ok=True)
     with tasks_path.open("w", encoding="utf-8") as handle:
         json.dump({"tasks": tasks}, handle, indent=2)
